@@ -4,6 +4,7 @@ import { streamText, tool, convertToModelMessages, stepCountIs } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { auth } from '@/auth';
+import postgres from 'postgres';
 
 const openai = createOpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY,
@@ -20,13 +21,26 @@ export async function POST(req: Request) {
       return Response.json({ error: '请先登录' }, { status: 401 });
     }
 
+    const sql = postgres(process.env.DATABASE_URL!);
     const body = await req.json().catch(() => ({}));
     const { chatId, messages: uiMessages } = body as {
       chatId?: string;
       messages?: any[];
     };
 
+    const userId = session.user.id;
     let resolvedChatId = chatId;
+
+    if (!resolvedChatId) {
+      const userText =
+        uiMessages?.find((m) => m.role === 'user')?.content?.slice(0, 15) ?? '新对话';
+
+      const rows = await sql
+        .unsafe('INSERT INTO chats (user_id, title) VALUES ($1, $2) RETURNING id', [userId, userText])
+        .catch(() => []);
+
+      resolvedChatId = rows?.[0]?.id as string | undefined;
+    }
 
     const tools = {
       getCurrentDate: tool({
@@ -75,11 +89,34 @@ export async function POST(req: Request) {
       return Response.json({ error: '未配置 API Key' }, { status: 500 });
     }
 
+    const chatIdForDb = resolvedChatId;
+    const userMsg = modelMessages?.find((m) => m.role === 'user');
+    const userContent =
+      typeof userMsg?.content === 'string' ? userMsg.content : JSON.stringify(userMsg?.content ?? '');
+
     const result = streamText({
       model: openai.chat('deepseek-chat'),
       ...(modelMessages ? { messages: modelMessages } : { prompt: prompt! }),
       tools,
       stopWhen: stepCountIs(3),
+      onFinish: ({ text }) => {
+        queueMicrotask(async () => {
+          try {
+            if (chatIdForDb) {
+              await sql.unsafe(
+                'INSERT INTO messages (chat_id, role, content) VALUES ($1, $2, $3)',
+                [chatIdForDb, 'user', userContent]
+              );
+              await sql.unsafe(
+                'INSERT INTO messages (chat_id, role, content) VALUES ($1, $2, $3)',
+                [chatIdForDb, 'assistant', text]
+              );
+            }
+          } catch (e) {
+            console.error('Failed to save messages:', e);
+          }
+        });
+      },
     });
 
     return result.toUIMessageStreamResponse();
