@@ -1,6 +1,10 @@
 import { streamText, tool, convertToModelMessages, stepCountIs } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
+import { auth } from '@/auth';
+import { db } from '@/db';
+import { chats, messages } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 
 const openai = createOpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY,
@@ -12,10 +16,35 @@ const openai = createOpenAI({
 
 export async function POST(req: Request) {
   try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return Response.json({ error: '请先登录' }, { status: 401 });
+    }
+
     const body = await req.json().catch(() => ({}));
-    
-    let messages: any[] | undefined;
-    let prompt: string | undefined;
+    const { chatId, messages: uiMessages } = body as {
+      chatId?: string;
+      messages?: any[];
+    };
+
+    let resolvedChatId = chatId;
+    let chatTitle = '新对话';
+
+    if (!resolvedChatId) {
+      const userText =
+        uiMessages?.find((m) => m.role === 'user')?.content?.slice(0, 15) ??
+        '新对话';
+      chatTitle = userText;
+
+      const newChat = await db
+        .insert(chats)
+        .values({
+          userId: session.user.id,
+          title: chatTitle,
+        })
+        .returning();
+      resolvedChatId = newChat[0].id;
+    }
 
     const tools = {
       getCurrentDate: tool({
@@ -46,14 +75,17 @@ export async function POST(req: Request) {
       }),
     };
 
-    if (Array.isArray(body.messages) && body.messages.length > 0) {
-      const uiMessages = body.messages.map(({ id, ...rest }: { id?: string }) => rest);
-      messages = await convertToModelMessages(uiMessages as any, { tools });
+    let modelMessages: any[] | undefined;
+    let prompt: string | undefined;
+
+    if (Array.isArray(uiMessages) && uiMessages.length > 0) {
+      const filteredMessages = uiMessages.map(({ id, ...rest }: { id?: string }) => rest);
+      modelMessages = await convertToModelMessages(filteredMessages as any, { tools });
     } else if (typeof body?.prompt === 'string' && body.prompt.trim()) {
       prompt = body.prompt.trim();
     }
 
-    if ((!messages || messages.length === 0) && !prompt) {
+    if ((!modelMessages || modelMessages.length === 0) && !prompt) {
       return Response.json({ error: '缺少有效的 prompt 或 messages' }, { status: 400 });
     }
 
@@ -63,9 +95,28 @@ export async function POST(req: Request) {
 
     const result = streamText({
       model: openai.chat('deepseek-chat'),
-      ...(messages ? { messages } : { prompt: prompt! }),
+      ...(modelMessages ? { messages: modelMessages } : { prompt: prompt! }),
       tools,
       stopWhen: stepCountIs(3),
+      onFinish: async ({ text }) => {
+        if (resolvedChatId) {
+          const lastUserMessage = modelMessages?.find((m) => m.role === 'user');
+          if (lastUserMessage) {
+            await db.insert(messages).values({
+              chatId: resolvedChatId,
+              role: 'user',
+              content: typeof lastUserMessage.content === 'string'
+                ? lastUserMessage.content
+                : JSON.stringify(lastUserMessage.content),
+            });
+          }
+          await db.insert(messages).values({
+            chatId: resolvedChatId,
+            role: 'assistant',
+            content: text,
+          });
+        }
+      },
     });
 
     return result.toUIMessageStreamResponse();
