@@ -1,10 +1,10 @@
+export const runtime = 'nodejs';
+
 import { streamText, tool, convertToModelMessages, stepCountIs } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { auth } from '@/auth';
-import { db } from '@/db';
-import { chats, messages } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import postgres from 'postgres';
 
 const openai = createOpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY,
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
       return Response.json({ error: '请先登录' }, { status: 401 });
     }
 
+    const sql = postgres(process.env.DATABASE_URL!);
     const body = await req.json().catch(() => ({}));
     const { chatId, messages: uiMessages } = body as {
       chatId?: string;
@@ -36,14 +37,10 @@ export async function POST(req: Request) {
         '新对话';
       chatTitle = userText;
 
-      const newChat = await db
-        .insert(chats)
-        .values({
-          userId: session.user.id,
-          title: chatTitle,
-        })
-        .returning();
-      resolvedChatId = newChat[0].id;
+      const [newChat] = await sql
+        .unsafe('INSERT INTO chats (user_id, title) VALUES ($1, $2) RETURNING id', [session.user.id, chatTitle])
+        .then((rows: any[]) => rows[0]);
+      resolvedChatId = newChat.id;
     }
 
     const tools = {
@@ -93,29 +90,27 @@ export async function POST(req: Request) {
       return Response.json({ error: '未配置 API Key' }, { status: 500 });
     }
 
+    const chatIdForFinish = resolvedChatId!;
+    const userMsg = modelMessages?.find((m) => m.role === 'user');
+
     const result = streamText({
       model: openai.chat('deepseek-chat'),
       ...(modelMessages ? { messages: modelMessages } : { prompt: prompt! }),
       tools,
       stopWhen: stepCountIs(3),
       onFinish: async ({ text }) => {
-        if (resolvedChatId) {
-          const lastUserMessage = modelMessages?.find((m) => m.role === 'user');
-          if (lastUserMessage) {
-            await db.insert(messages).values({
-              chatId: resolvedChatId,
-              role: 'user',
-              content: typeof lastUserMessage.content === 'string'
-                ? lastUserMessage.content
-                : JSON.stringify(lastUserMessage.content),
-            });
-          }
-          await db.insert(messages).values({
-            chatId: resolvedChatId,
-            role: 'assistant',
-            content: text,
-          });
-        }
+        await sql
+          .unsafe('INSERT INTO messages (chat_id, role, content) VALUES ($1, $2, $3)', [
+            chatIdForFinish,
+            'user',
+            typeof userMsg?.content === 'string' ? userMsg.content : JSON.stringify(userMsg?.content ?? ''),
+          ]);
+        await sql
+          .unsafe('INSERT INTO messages (chat_id, role, content) VALUES ($1, $2, $3)', [
+            chatIdForFinish,
+            'assistant',
+            text,
+          ]);
       },
     });
 
