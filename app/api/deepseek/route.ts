@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       let rows: any[] = [];
       try {
         rows = await sql.unsafe(
-          'INSERT INTO chats (user_id, title) VALUES ($1, $2) RETURNING id',
+          'INSERT INTO "chat" (user_id, title) VALUES ($1, $2) RETURNING id',
           [userId, userText]
         );
       } catch (insertErr) {
@@ -111,12 +111,16 @@ export async function POST(req: Request) {
           try {
             if (chatIdForDb) {
               await sql.unsafe(
-                'INSERT INTO messages (chat_id, role, content) VALUES ($1, $2, $3)',
+                'INSERT INTO "message" (chat_id, role, content) VALUES ($1, $2, $3)',
                 [chatIdForDb, 'user', userContent]
               );
               await sql.unsafe(
-                'INSERT INTO messages (chat_id, role, content) VALUES ($1, $2, $3)',
+                'INSERT INTO "message" (chat_id, role, content) VALUES ($1, $2, $3)',
                 [chatIdForDb, 'assistant', text]
+              );
+              await sql.unsafe(
+                'UPDATE "chat" SET title = $1, updated_at = now() WHERE id = $2',
+                [userContent.slice(0, 30), chatIdForDb]
               );
             }
           } catch (e) {

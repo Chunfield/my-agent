@@ -11,7 +11,7 @@ export async function GET() {
   const sql = postgres(process.env.DATABASE_URL!);
 
   const rows = await sql.unsafe(
-    'SELECT id, title, created_at as "createdAt", updated_at as "updatedAt" FROM chats WHERE user_id = $1 ORDER BY created_at DESC',
+    'SELECT id, title, created_at as "createdAt", updated_at as "updatedAt" FROM "chat" WHERE user_id = $1 ORDER BY created_at DESC',
     [session.user.id]
   );
 
@@ -27,7 +27,7 @@ export async function POST() {
   const sql = postgres(process.env.DATABASE_URL!);
 
   const rows = await sql.unsafe(
-    'INSERT INTO chats (user_id, title) VALUES ($1, $2) RETURNING id, title, created_at as "createdAt", updated_at as "updatedAt"',
+    'INSERT INTO "chat" (user_id, title) VALUES ($1, $2) RETURNING id, title, created_at as "createdAt", updated_at as "updatedAt"',
     [session.user.id, '新对话']
   );
 
