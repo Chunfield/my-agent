@@ -32,7 +32,7 @@ export async function GET(
   let msgRows: any[] = [];
   try {
     msgRows = await sql.unsafe(
-      'SELECT id, role, content, created_at as "createdAt" FROM message WHERE chat_id = $1 ORDER BY created_at ASC',
+      'SELECT id, role, content, created_at as "createdAt" FROM "message" WHERE chat_id = $1 ORDER BY created_at ASC',
       [id]
     );
   } catch (e) {
