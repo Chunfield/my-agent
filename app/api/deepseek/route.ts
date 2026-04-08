@@ -98,8 +98,17 @@ export async function POST(req: Request) {
 
     const chatIdForDb = resolvedChatId;
     const userMsg = modelMessages?.find((m) => m.role === 'user');
-    const userContent =
-      typeof userMsg?.content === 'string' ? userMsg.content : JSON.stringify(userMsg?.content ?? '');
+    let userContent = '';
+    if (userMsg) {
+      if (typeof userMsg.content === 'string') {
+        userContent = userMsg.content;
+      } else if (Array.isArray(userMsg.content)) {
+        userContent = (userMsg.content as any[])
+          .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map((p) => p.text)
+          .join('\n');
+      }
+    }
 
     const result = streamText({
       model: openai.chat('deepseek-chat'),

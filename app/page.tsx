@@ -170,10 +170,13 @@ export default function Home() {
         const loadedMessages = data.map((m: any) => ({
           id: m.id,
           role: m.role,
-          content: m.content,
+          parts: [{ type: 'text' as const, text: m.content }],
         }));
         setChatMessages(loadedMessages);
         setMessages(loadedMessages as any);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        console.error('[page] load messages error:', errData);
       }
     } catch (e) {
       console.error('Failed to load chat messages', e);
