@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { db } from '@/db';
-import { chats, messages } from '@/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import postgres from 'postgres';
 
 export async function GET() {
   const session = await auth();
@@ -10,18 +8,14 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const userChats = await db
-    .select({
-      id: chats.id,
-      title: chats.title,
-      createdAt: chats.createdAt,
-      updatedAt: chats.updatedAt,
-    })
-    .from(chats)
-    .where(eq(chats.userId, session.user.id))
-    .orderBy(desc(chats.createdAt));
+  const sql = postgres(process.env.DATABASE_URL!);
 
-  return NextResponse.json(userChats);
+  const rows = await sql.unsafe(
+    'SELECT id, title, created_at as "createdAt", updated_at as "updatedAt" FROM chats WHERE user_id = $1 ORDER BY created_at DESC',
+    [session.user.id]
+  );
+
+  return NextResponse.json(rows);
 }
 
 export async function POST() {
@@ -30,13 +24,12 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const newChat = await db
-    .insert(chats)
-    .values({
-      userId: session.user.id,
-      title: '新对话',
-    })
-    .returning();
+  const sql = postgres(process.env.DATABASE_URL!);
 
-  return NextResponse.json(newChat[0], { status: 201 });
+  const rows = await sql.unsafe(
+    'INSERT INTO chats (user_id, title) VALUES ($1, $2) RETURNING id, title, created_at as "createdAt", updated_at as "updatedAt"',
+    [session.user.id, '新对话']
+  );
+
+  return NextResponse.json(rows[0], { status: 201 });
 }

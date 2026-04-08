@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { db } from '@/db';
-import { chats, messages } from '@/db/schema';
-import { eq, and, asc } from 'drizzle-orm';
+import postgres from 'postgres';
 
 export async function GET(
   _req: Request,
@@ -14,27 +12,21 @@ export async function GET(
   }
 
   const { id } = await params;
+  const sql = postgres(process.env.DATABASE_URL!);
 
-  const chat = await db
-    .select()
-    .from(chats)
-    .where(and(eq(chats.id, id), eq(chats.userId, session.user.id)))
-    .limit(1);
+  const chatRows = await sql.unsafe(
+    'SELECT id FROM chats WHERE id = $1 AND user_id = $2',
+    [id, session.user.id]
+  );
 
-  if (!chat[0]) {
+  if (!chatRows[0]) {
     return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
   }
 
-  const chatMessages = await db
-    .select({
-      id: messages.id,
-      role: messages.role,
-      content: messages.content,
-      createdAt: messages.createdAt,
-    })
-    .from(messages)
-    .where(eq(messages.chatId, id))
-    .orderBy(asc(messages.createdAt));
+  const msgRows = await sql.unsafe(
+    'SELECT id, role, content, created_at as "createdAt" FROM messages WHERE chat_id = $1 ORDER BY created_at ASC',
+    [id]
+  );
 
-  return NextResponse.json(chatMessages);
+  return NextResponse.json(msgRows);
 }
