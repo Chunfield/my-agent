@@ -35,9 +35,16 @@ export async function POST(req: Request) {
       const userText =
         uiMessages?.find((m) => m.role === 'user')?.content?.slice(0, 15) ?? '新对话';
 
-      const rows = await sql
-        .unsafe('INSERT INTO chats (user_id, title) VALUES ($1, $2) RETURNING id', [userId, userText])
-        .catch(() => []);
+      let rows: any[] = [];
+      try {
+        rows = await sql.unsafe(
+          'INSERT INTO chats (user_id, title) VALUES ($1, $2) RETURNING id',
+          [userId, userText]
+        );
+      } catch (insertErr) {
+        console.error('[deepseek] INSERT chat failed:', insertErr);
+        return Response.json({ error: '创建对话失败', detail: String(insertErr) }, { status: 500 });
+      }
 
       resolvedChatId = rows?.[0]?.id as string | undefined;
     }
