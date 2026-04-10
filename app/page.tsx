@@ -174,9 +174,6 @@ export default function Home() {
         }));
         setChatMessages(loadedMessages);
         setMessages(loadedMessages as any);
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        console.error('[page] load messages error:', errData);
       }
     } catch (e) {
       console.error('Failed to load chat messages', e);

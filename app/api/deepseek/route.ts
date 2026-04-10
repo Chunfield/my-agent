@@ -98,17 +98,8 @@ export async function POST(req: Request) {
 
     const chatIdForDb = resolvedChatId;
     const userMsg = modelMessages?.find((m) => m.role === 'user');
-    let userContent = '';
-    if (userMsg) {
-      if (typeof userMsg.content === 'string') {
-        userContent = userMsg.content;
-      } else if (Array.isArray(userMsg.content)) {
-        userContent = (userMsg.content as any[])
-          .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
-          .map((p) => p.text)
-          .join('\n');
-      }
-    }
+    const userContent =
+      typeof userMsg?.content === 'string' ? userMsg.content : JSON.stringify(userMsg?.content ?? '');
 
     const result = streamText({
       model: openai.chat('deepseek-chat'),
@@ -126,10 +117,6 @@ export async function POST(req: Request) {
               await sql.unsafe(
                 'INSERT INTO "message" (chat_id, role, content) VALUES ($1, $2, $3)',
                 [chatIdForDb, 'assistant', text]
-              );
-              await sql.unsafe(
-                'UPDATE "chat" SET title = $1, updated_at = now() WHERE id = $2',
-                [userContent.slice(0, 30), chatIdForDb]
               );
             }
           } catch (e) {
