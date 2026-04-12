@@ -6,7 +6,19 @@ import { users, chats, messages } from '@/db/schema';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db),
-  providers: [GitHub],
+  providers: [
+    GitHub({
+      issuer: 'https://github.com/login/oauth',
+      profile(profile) {
+        return {
+          id: profile.id?.toString() ?? profile.sub,
+          name: profile.name ?? profile.login,
+          email: profile.email,
+          image: profile.avatar_url,
+        };
+      },
+    }),
+  ],
   session: {
     strategy: 'jwt',
   },

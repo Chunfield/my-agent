@@ -32,8 +32,18 @@ export async function POST(req: Request) {
     let resolvedChatId = chatId;
 
     if (!resolvedChatId) {
-      const userText =
-        uiMessages?.find((m) => m.role === 'user')?.content?.slice(0, 15) ?? '新对话';
+      const firstUserMessage = uiMessages?.find((m) => m.role === 'user');
+      let userText = '新对话';
+      if (firstUserMessage) {
+        if (typeof firstUserMessage.content === 'string') {
+          userText = firstUserMessage.content.slice(0, 15);
+        } else if (Array.isArray(firstUserMessage.parts)) {
+          const textPart = firstUserMessage.parts.find(
+            (p: any) => p.type === 'text'
+          );
+          userText = (textPart as any)?.text?.slice(0, 15) ?? '新对话';
+        }
+      }
 
       let rows: any[] = [];
       try {
